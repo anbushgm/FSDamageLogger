@@ -7,6 +7,10 @@ local _GetSpellInfo = Details.GetSpellInfo
 local LibWindow = LibStub("LibWindow-1.1")
 local playerSerial = UnitGUID("player")
 
+-- for collecting split parts
+local pendingParts = {}
+local expectedTotal = nil
+
 function FSDamageLogger:ScrollDamage()
     if (not FSDamageLoggerFrame) then
 
@@ -195,40 +199,45 @@ function FSDamageLogger:ScrollDamage()
         local serverCombatLogReader = CreateFrame("Frame")
         serverCombatLogReader:SetScript("OnEvent", function(self, event, prefix, message, channel, sender)
             if event == "CHAT_MSG_ADDON" and prefix == "FSDL_DAMAGE" then
+                -- handle split parts
+                local part, total, chunk = message:match("^PART%|(%d+)%/(%d+)%|(.*)$")
+                if part then
+                    part = tonumber(part); total = tonumber(total)
+                    pendingParts[part] = chunk
+                    if not expectedTotal then expectedTotal = total end
+                    local count = 0 for _ in pairs(pendingParts) do count = count + 1 end
+                    if count < expectedTotal then return end
+                    message = table.concat(pendingParts)
+                    wipe(pendingParts)
+                    expectedTotal = nil
+                end
+
+                -- parse full message
                 local data = {}
-                for chunk in string.gmatch(message, "([^|]+)") do
-                    local key, value = chunk:match("([^=]+)=(.*)")
-                    if key and value then
-                        data[key] = value
-                    end
+                for chunkPart in string.gmatch(message, "([^|]+)") do
+                    local key, value = chunkPart:match("([^=]+)=(.*)")
+                    if key and value then data[key] = value end
                 end
 
                 local damageType = data["DamageType"]
                 if damageType == "DIRECT_DAMAGE" then damageType = "SWING" end
-                
+
                 local spellID = tonumber(data["SpellID"])
-                local _GetSpellInfo = Details.GetSpellInfo
                 local spellName = _GetSpellInfo(spellID)
                 local amount = tonumber(data["Amount"])
                 local absorbed = tonumber(data["Absorbed"])
-                --local IsCritical = data["IsCritical"]
                 local logData = data["Log"] or ""
 
-                local spellSchool = 1
+                local sourceGUID = UnitGUID("player")
+                local sourceName = data["SourceName"]
 
-                local sourceGUID = data["SourceGUID"]
-                local sourceName = data["SourceName"];
-                local destGUID = UnitGUID("target")
-                local destName = UnitName("target")
-
-                if not FSDamageLoggerFrame.Data.Started then
-                    FSDamageLoggerFrame.Data.Started = time()
-                end
+                if not FSDamageLoggerFrame.Data.Started then FSDamageLoggerFrame.Data.Started = time() end
 
                 table.insert(FSDamageLoggerFrame.Data, 1, {
-                    time(), "SPELL_DAMAGE", false, sourceGUID, sourceName, 0, 0,
-                    0, destGUID, destName, 0,
-                    spellID, spellName, spellSchool, amount,
+                    time(), "SPELL_DAMAGE", false,
+                    sourceGUID, sourceName, 0, 0,
+                    0, UnitGUID("target"), UnitName("target"), 0,
+                    spellID, spellName, 1, amount,
                     0, 0, 0, 0, absorbed, logData, damageType
                 })
                 damageScroll:RefreshScroll()
@@ -251,6 +260,4 @@ end
 
 SLASH_FSDAMAGELOGGER1 = "/fsdamagelogger"
 SLASH_FSDAMAGELOGGER2 = "/fsdl"
-SlashCmdList["FSDAMAGELOGGER"] = function()
-    FSDamageLogger:ScrollDamage()
-end
+SlashCmdList["FSDAMAGELOGGER"] = function() FSDamageLogger:ScrollDamage() end

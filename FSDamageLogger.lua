@@ -34,58 +34,58 @@ function FSDamageLogger:ScrollDamage()
         local backdrop_color = {.2, .2, .2, 0.2}
         local backdrop_color_on_enter = {.8, .8, .8, 0.4}
 
-		local headerTable =
-		{
-			{text = "", width = 20},
-			{text = "Spell Name", width = 90},
-			{text = "Amount", width = 60},
-			{text = "Source", width = 100},
-			{text = "DmgType", width = 70},
-			{text = "Spell ID", width = 70},
-		}
+        local headerTable =
+        {
+            {text = "", width = 20},
+            {text = "Spell Name", width = 90},
+            {text = "Amount", width = 60},
+            {text = "Source", width = 100},
+            {text = "DmgType", width = 70},
+            {text = "Spell ID", width = 70},
+        }
 
         local headerOptions = {padding = 2}
         FSDamageLoggerFrame.Header = DF:CreateHeader(FSDamageLoggerFrame, headerTable, headerOptions)
         FSDamageLoggerFrame.Header:SetPoint("TOPLEFT", FSDamageLoggerFrame, "TOPLEFT", 5, -30)
 
-		local function OpenDetailWindow(spellName, spellID, amount, logText)
-			if not FSDamageLogger.DetailWindow then
-				local detail = DF:CreateSimplePanel(UIParent, 500, 400, "Spell Logs")
-				detail:SetFrameStrata("DIALOG")
+        local function OpenDetailWindow(spellName, spellID, amount, logText)
+            if not FSDamageLogger.DetailWindow then
+                local detail = DF:CreateSimplePanel(UIParent, 500, 400, "Spell Logs")
+                detail:SetFrameStrata("DIALOG")
 
-				local scrollFrame = CreateFrame("ScrollFrame", nil, detail, "UIPanelScrollFrameTemplate")
-				scrollFrame:SetPoint("TOPLEFT", 10, -50)
-				scrollFrame:SetPoint("BOTTOMRIGHT", -30, 10)
+                local scrollFrame = CreateFrame("ScrollFrame", nil, detail, "UIPanelScrollFrameTemplate")
+                scrollFrame:SetPoint("TOPLEFT", 10, -50)
+                scrollFrame:SetPoint("BOTTOMRIGHT", -30, 10)
 
-				local editBox = CreateFrame("EditBox", nil, scrollFrame)
-				editBox:SetMultiLine(true)
-				editBox:SetFontObject("GameFontHighlightSmall")
-				editBox:SetAutoFocus(false)
-				editBox:SetWidth(440)
-				editBox:SetJustifyH("LEFT")
-				editBox:SetJustifyV("TOP")
-				editBox:EnableMouse(true)
+                local editBox = CreateFrame("EditBox", nil, scrollFrame)
+                editBox:SetMultiLine(true)
+                editBox:SetFontObject("GameFontHighlightSmall")
+                editBox:SetAutoFocus(false)
+                editBox:SetWidth(440)
+                editBox:SetJustifyH("LEFT")
+                editBox:SetJustifyV("TOP")
+                editBox:EnableMouse(true)
 
-				scrollFrame:SetScrollChild(editBox)
+                scrollFrame:SetScrollChild(editBox)
 
-				detail.editBox = editBox
-				FSDamageLogger.DetailWindow = detail
-			end
+                detail.editBox = editBox
+                FSDamageLogger.DetailWindow = detail
+            end
 
-			local textContent = string.format("Spell Name: |cffffd100%s|r\nSpell ID: |cff00ccff%d|r\nDamage: |cffff5555%d|r",
-				spellName, spellID, amount
-			)
+            local textContent = string.format("Spell Name: |cffffd100%s|r\nSpell ID: |cff00ccff%d|r\nDamage: |cffff5555%d|r",
+                spellName, spellID, amount
+            )
 
-			if logText and logText ~= "" then
-				textContent = textContent .. "\n\nLog Data:\n" .. logText
-			end
+            if logText and logText ~= "" then
+                textContent = textContent .. "\n\nLog Data:\n" .. logText
+            end
 
-			local frame = FSDamageLogger.DetailWindow
-			frame.editBox:SetText(textContent)
-			frame.editBox:HighlightText(0, 0)
+            local frame = FSDamageLogger.DetailWindow
+            frame.editBox:SetText(textContent)
+            frame.editBox:HighlightText(0, 0)
 
-			frame:Show()
-		end
+            frame:Show()
+        end
 
         local function createLineFunc(self, index)
             local line = CreateFrame("button", "$parentLine" .. index, self, "BackdropTemplate")
@@ -106,7 +106,7 @@ function FSDamageLogger:ScrollDamage()
             local spellNameText = DF:CreateLabel(line, "", 10, "white")
             local damageText = DF:CreateLabel(line, "", 10, "white")
             local sourceNameText = DF:CreateLabel(line, "", 10, "white")
-			local dmgTypeText = DF:CreateLabel(line, "", 10, "white")
+            local dmgTypeText = DF:CreateLabel(line, "", 10, "white")
             local spellIDText = DF:CreateLabel(line, "", 10, "white")
 
             line:SetScript("OnEnter", function(self)
@@ -120,12 +120,12 @@ function FSDamageLogger:ScrollDamage()
                 OpenDetailWindow(self.SpellName or "Unknown", self.SpellID or 0, self.Amount or 0, self.Log)
             end)
 
-			line:AddFrameToHeaderAlignment(icon)
-			line:AddFrameToHeaderAlignment(spellNameText)
-			line:AddFrameToHeaderAlignment(damageText)
-			line:AddFrameToHeaderAlignment(sourceNameText)
-			line:AddFrameToHeaderAlignment(dmgTypeText)
-			line:AddFrameToHeaderAlignment(spellIDText)
+            line:AddFrameToHeaderAlignment(icon)
+            line:AddFrameToHeaderAlignment(spellNameText)
+            line:AddFrameToHeaderAlignment(damageText)
+            line:AddFrameToHeaderAlignment(sourceNameText)
+            line:AddFrameToHeaderAlignment(dmgTypeText)
+            line:AddFrameToHeaderAlignment(spellIDText)
             line:AlignWithHeader(FSDamageLoggerFrame.Header, "left")
 
             line.Icon = icon
@@ -133,7 +133,7 @@ function FSDamageLogger:ScrollDamage()
             line.SpellNameText = spellNameText
             line.DamageText = damageText
             line.SourceNameText = sourceNameText
-			line.DmgTypeText = dmgTypeText
+            line.DmgTypeText = dmgTypeText
             line.SpellIDText = spellIDText
 
             return line
@@ -168,7 +168,7 @@ function FSDamageLogger:ScrollDamage()
                         line.Icon:SetTexCoord(.1, .9, .1, .9)
                         line.DamageText.text = " " .. ToK(_, amount)
                         line.SourceNameText.text = sourceName or "Unknown"
-						line.DmgTypeText.text = DamageType or "-"
+                        line.DmgTypeText.text = DamageType or "-"
                         line.SpellIDText.text = spellID
                         line.SpellNameText.text = name
                     else
@@ -204,14 +204,14 @@ function FSDamageLogger:ScrollDamage()
                 end
 
                 local damageType = data["DamageType"]
-				if damageType == "DIRECT_DAMAGE" then damageType = "SWING" end
-				
+                if damageType == "DIRECT_DAMAGE" then damageType = "SWING" end
+                
                 local spellID = tonumber(data["SpellID"])
                 local _GetSpellInfo = Details.GetSpellInfo
                 local spellName = _GetSpellInfo(spellID)
                 local amount = tonumber(data["Amount"])
-				local absorbed = tonumber(data["Absorbed"])
-				--local IsCritical = data["IsCritical"]
+                local absorbed = tonumber(data["Absorbed"])
+                --local IsCritical = data["IsCritical"]
                 local logData = data["Log"] or ""
 
                 local spellSchool = 1

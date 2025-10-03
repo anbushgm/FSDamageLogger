@@ -11,6 +11,31 @@ local playerSerial = UnitGUID("player")
 local pendingParts = {}
 local expectedTotal = nil
 
+-- === Version check ===
+local function GetMeta(addon, key)
+    if C_AddOns and C_AddOns.GetAddOnMetadata then
+        return C_AddOns.GetAddOnMetadata(addon, key)
+    elseif GetAddOnMetadata then
+        return GetAddOnMetadata(addon, key)
+    end
+end
+
+local ADDON_VERSION = GetMeta("FSDamageLogger", "Version") or "unknown"
+C_ChatInfo.RegisterAddonMessagePrefix("FSDL_VERSION")
+
+local FSDL_VersionFrame = CreateFrame("Frame")
+FSDL_VersionFrame:RegisterEvent("CHAT_MSG_ADDON")
+FSDL_VersionFrame:SetScript("OnEvent", function(self, event, prefix, message, channel, sender)
+    if event ~= "CHAT_MSG_ADDON" or prefix ~= "FSDL_VERSION" then
+        return
+    end
+    local serverVersion = tostring(message or "")
+    if serverVersion ~= ADDON_VERSION then
+        print("|cffff2020FSDL is outdated, please update the AddOn [https://github.com/anbushgm/FSDamageLogger].|r",
+              "(required:", serverVersion .. ", current:", ADDON_VERSION .. ")")
+    end
+end)
+
 function FSDamageLogger:ScrollDamage()
     if (not FSDamageLoggerFrame) then
 

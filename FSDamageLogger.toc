@@ -1,4 +1,4 @@
-## Interface: 110100
+## Interface: 110105
 ## Title: FSDamageLogger
 ## Notes: Logs each damage event individually with GUI
 ## Author: Anbush

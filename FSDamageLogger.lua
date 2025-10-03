@@ -3,15 +3,11 @@ local Details = _G.Details
 local DF = _G.DetailsFramework
 local _, FSDamageLogger = ...
 local _GetSpellInfo = Details.GetSpellInfo
-
 local LibWindow = LibStub("LibWindow-1.1")
-local playerSerial = UnitGUID("player")
 
--- for collecting split parts
-local pendingParts = {}
-local expectedTotal = nil
-
--- === Version check ===
+-- =========================
+-- Version (from .toc / C_AddOns)
+-- =========================
 local function GetMeta(addon, key)
     if C_AddOns and C_AddOns.GetAddOnMetadata then
         return C_AddOns.GetAddOnMetadata(addon, key)
@@ -19,270 +15,310 @@ local function GetMeta(addon, key)
         return GetAddOnMetadata(addon, key)
     end
 end
-
 local ADDON_VERSION = GetMeta("FSDamageLogger", "Version") or "unknown"
 C_ChatInfo.RegisterAddonMessagePrefix("FSDL_VERSION")
-
-local FSDL_VersionFrame = CreateFrame("Frame")
-FSDL_VersionFrame:RegisterEvent("CHAT_MSG_ADDON")
-FSDL_VersionFrame:SetScript("OnEvent", function(self, event, prefix, message, channel, sender)
-    if event ~= "CHAT_MSG_ADDON" or prefix ~= "FSDL_VERSION" then
-        return
-    end
+local verFrame = CreateFrame("Frame")
+verFrame:RegisterEvent("CHAT_MSG_ADDON")
+verFrame:SetScript("OnEvent", function(_, event, prefix, message)
+    if event ~= "CHAT_MSG_ADDON" or prefix ~= "FSDL_VERSION" then return end
     local serverVersion = tostring(message or "")
     if serverVersion ~= ADDON_VERSION then
-        print("|cffff2020FSDL is outdated, please update the AddOn [https://github.com/anbushgm/FSDamageLogger].|r",
-              "(required:", serverVersion .. ", current:", ADDON_VERSION .. ")")
+        print("|cffff2020FSDL is outdated, please update the AddOn. [https://github.com/anbushgm/FSDamageLogger]|r (required:", serverVersion .. ", current:", ADDON_VERSION .. ")")
     end
 end)
 
-function FSDamageLogger:ScrollDamage()
-    if (not FSDamageLoggerFrame) then
+-- =========================
+-- Data from 4 independant tables
+-- =========================
+local DATA = {
+    DAMAGE       = {}, -- FSDL_DAMAGE
+    HEAL         = {}, -- FSDL_HEAL
+    DAMAGE_TAKEN = {}, -- FSDL_DAMAGE_T
+    HEAL_TAKEN   = {}, -- FSDL_HEAL_T
+}
+local ACTIVE_TAB = "DAMAGE"
+local TABS = {
+    { key="DAMAGE",       label="Damage" },
+    { key="HEAL",         label="Heal" },
+    { key="DAMAGE_TAKEN", label="Damage Taken" },
+    { key="HEAL_TAKEN",   label="Heal Taken" },
+}
 
-        FSDamageLoggerFrame = DF:CreateSimplePanel(UIParent, 460, 400, ".debug fsdl")
-        FSDamageLoggerFrame.Data = {}
-        FSDamageLoggerFrame:ClearAllPoints()
-        FSDamageLoggerFrame:SetPoint("CENTER")
-        FSDamageLoggerFrame:SetFrameStrata("DIALOG")
-        FSDamageLoggerFrame:Hide()
+-- Chunks: (prefix, sender)
+local chunkBuffers = {}  -- [prefix] = { [sender] = {parts={}, total=nil} }
 
-        if (not Details.damage_scroll_position) then
-            Details.damage_scroll_position = {point = "CENTER", x = 0, y = 0, scale = 1}
-        end
+-- =========================
+-- UI sizes
+-- =========================
+local PANEL_W, PANEL_H = 520, 420
+local LINE_H = 20
 
-        LibWindow.RegisterConfig(FSDamageLoggerFrame, Details.damage_scroll_position)
-        LibWindow.MakeDraggable(FSDamageLoggerFrame)
-        LibWindow.RestorePosition(FSDamageLoggerFrame)
-        FSDamageLoggerFrame:SetScale(Details.damage_scroll_position.scale)
+local headerTable = {
+    {text="",            width=20},
+    {text="Spell Name",  width=150},
+    {text="Amount",      width=80},
+    {text="Source",      width=120},
+    {text="DmgType",     width=70},
+    {text="Spell ID",    width=60},
+}
+local headerOptions = { padding=2 }
 
-        local scroll_width = 410
-        local scroll_height = 290
-        local scroll_lines = 14
-        local scroll_line_height = 20
+local F = {} -- refs
 
-        local backdrop_color = {.2, .2, .2, 0.2}
-        local backdrop_color_on_enter = {.8, .8, .8, 0.4}
+local function OpenDetailWindow(spellName, spellID, amount, logText)
+    if not F.Detail then
+        local detail = DF:CreateSimplePanel(UIParent, 520, 420, "Spell Logs")
+        detail:SetFrameStrata("DIALOG")
 
-        local headerTable =
-        {
-            {text = "", width = 20},
-            {text = "Spell Name", width = 90},
-            {text = "Amount", width = 60},
-            {text = "Source", width = 100},
-            {text = "DmgType", width = 70},
-            {text = "Spell ID", width = 70},
-        }
+        local scroll = CreateFrame("ScrollFrame", nil, detail, "UIPanelScrollFrameTemplate")
+        scroll:SetPoint("TOPLEFT", 10, -50)
+        scroll:SetPoint("BOTTOMRIGHT", -30, 10)
 
-        local headerOptions = {padding = 2}
-        FSDamageLoggerFrame.Header = DF:CreateHeader(FSDamageLoggerFrame, headerTable, headerOptions)
-        FSDamageLoggerFrame.Header:SetPoint("TOPLEFT", FSDamageLoggerFrame, "TOPLEFT", 5, -30)
+        local edit = CreateFrame("EditBox", nil, scroll)
+        edit:SetMultiLine(true)
+        edit:SetFontObject("GameFontHighlightSmall")
+        edit:SetAutoFocus(false)
+        edit:SetWidth(460)
+        edit:SetJustifyH("LEFT")
+        edit:SetJustifyV("TOP")
+        edit:EnableMouse(true)
+        scroll:SetScrollChild(edit)
 
-        local function OpenDetailWindow(spellName, spellID, amount, logText)
-            if not FSDamageLogger.DetailWindow then
-                local detail = DF:CreateSimplePanel(UIParent, 500, 400, "Spell Logs")
-                detail:SetFrameStrata("DIALOG")
-
-                local scrollFrame = CreateFrame("ScrollFrame", nil, detail, "UIPanelScrollFrameTemplate")
-                scrollFrame:SetPoint("TOPLEFT", 10, -50)
-                scrollFrame:SetPoint("BOTTOMRIGHT", -30, 10)
-
-                local editBox = CreateFrame("EditBox", nil, scrollFrame)
-                editBox:SetMultiLine(true)
-                editBox:SetFontObject("GameFontHighlightSmall")
-                editBox:SetAutoFocus(false)
-                editBox:SetWidth(440)
-                editBox:SetJustifyH("LEFT")
-                editBox:SetJustifyV("TOP")
-                editBox:EnableMouse(true)
-
-                scrollFrame:SetScrollChild(editBox)
-
-                detail.editBox = editBox
-                FSDamageLogger.DetailWindow = detail
-            end
-
-            local textContent = string.format("Spell Name: |cffffd100%s|r\nSpell ID: |cff00ccff%d|r\nDamage: |cffff5555%d|r",
-                spellName, spellID, amount
-            )
-
-            if logText and logText ~= "" then
-                textContent = textContent .. "\n\nLog Data:\n" .. logText
-            end
-
-            local frame = FSDamageLogger.DetailWindow
-            frame.editBox:SetText(textContent)
-            frame.editBox:HighlightText(0, 0)
-
-            frame:Show()
-        end
-
-        local function createLineFunc(self, index)
-            local line = CreateFrame("button", "$parentLine" .. index, self, "BackdropTemplate")
-            line:SetPoint("TOPLEFT", self, "TOPLEFT", 1, -((index-1)*(scroll_line_height+1)) - 1)
-            line:SetSize(scroll_width - 2, scroll_line_height)
-
-            line:SetBackdrop({bgFile = [[Interface\Tooltips\UI-Tooltip-Background]], tileSize = 64, tile = true})
-            line:SetBackdropColor(unpack(backdrop_color))
-
-            DF:Mixin(line, DF.HeaderFunctions)
-
-            local icon = line:CreateTexture("$parentSpellIcon", "OVERLAY")
-            icon:SetSize(scroll_line_height - 2, scroll_line_height - 2)
-
-            local iconFrame = CreateFrame("frame", "$parentIconFrame", line)
-            iconFrame:SetAllPoints(icon)
-
-            local spellNameText = DF:CreateLabel(line, "", 10, "white")
-            local damageText = DF:CreateLabel(line, "", 10, "white")
-            local sourceNameText = DF:CreateLabel(line, "", 10, "white")
-            local dmgTypeText = DF:CreateLabel(line, "", 10, "white")
-            local spellIDText = DF:CreateLabel(line, "", 10, "white")
-
-            line:SetScript("OnEnter", function(self)
-                self:SetBackdropColor(unpack(backdrop_color_on_enter))
-            end)
-            line:SetScript("OnLeave", function(self)
-                self:SetBackdropColor(unpack(backdrop_color))
-            end)
-
-            line:SetScript("OnClick", function(self)
-                OpenDetailWindow(self.SpellName or "Unknown", self.SpellID or 0, self.Amount or 0, self.Log)
-            end)
-
-            line:AddFrameToHeaderAlignment(icon)
-            line:AddFrameToHeaderAlignment(spellNameText)
-            line:AddFrameToHeaderAlignment(damageText)
-            line:AddFrameToHeaderAlignment(sourceNameText)
-            line:AddFrameToHeaderAlignment(dmgTypeText)
-            line:AddFrameToHeaderAlignment(spellIDText)
-            line:AlignWithHeader(FSDamageLoggerFrame.Header, "left")
-
-            line.Icon = icon
-            line.IconFrame = iconFrame
-            line.SpellNameText = spellNameText
-            line.DamageText = damageText
-            line.SourceNameText = sourceNameText
-            line.DmgTypeText = dmgTypeText
-            line.SpellIDText = spellIDText
-
-            return line
-        end
-
-        local refreshFunc = function(self, data, offset, totalLines)
-            local ToK = Details:GetCurrentToKFunction()
-
-            for i = 1, totalLines do
-                local index = i + offset
-                local event = data[index]
-                if event then
-                    local line = self:GetLine(i)
-
-                    local time, token, hidding, sourceSerial, sourceName, sourceFlag, sourceFlag2,
-                          targetSerial, targetName, targetFlag, targetFlag2,
-                          spellID, spellName, spellType, amount,
-                          overkill, school, resisted, blocked, absorbed,
-                          Log, DamageType = unpack(event)
-
-                    Log = Log or ""
-
-                    local name, _, icon = _GetSpellInfo(spellID or 1)
-
-                    line.SpellID = spellID
-                    line.SpellName = name
-                    line.Amount = amount
-                    line.Log = Log
-
-                    if name then
-                        line.Icon:SetTexture(icon)
-                        line.Icon:SetTexCoord(.1, .9, .1, .9)
-                        line.DamageText.text = " " .. ToK(_, amount)
-                        line.SourceNameText.text = sourceName or "Unknown"
-                        line.DmgTypeText.text = DamageType or "-"
-                        line.SpellIDText.text = spellID
-                        line.SpellNameText.text = name
-                    else
-                        line:Hide()
-                    end
-                end
-            end
-        end
-
-        local damageScroll = DF:CreateScrollBox(FSDamageLoggerFrame, "$parentSpellScroll", refreshFunc, FSDamageLoggerFrame.Data, scroll_width, scroll_height, scroll_lines, scroll_line_height)
-        DF:ReskinSlider(damageScroll)
-        damageScroll:SetPoint("TOPLEFT", FSDamageLoggerFrame, "TOPLEFT", 5, -70)
-
-        function damageScroll:RefreshScroll()
-            damageScroll:SetData(FSDamageLoggerFrame.Data)
-            damageScroll:Refresh()
-        end
-
-        for i = 1, scroll_lines do
-            damageScroll:CreateLine(createLineFunc)
-        end
-
-        C_ChatInfo.RegisterAddonMessagePrefix("FSDL_DAMAGE")
-        local serverCombatLogReader = CreateFrame("Frame")
-        serverCombatLogReader:SetScript("OnEvent", function(self, event, prefix, message, channel, sender)
-            if event == "CHAT_MSG_ADDON" and prefix == "FSDL_DAMAGE" then
-                -- handle split parts
-                local part, total, chunk = message:match("^PART%|(%d+)%/(%d+)%|(.*)$")
-                if part then
-                    part = tonumber(part); total = tonumber(total)
-                    pendingParts[part] = chunk
-                    if not expectedTotal then expectedTotal = total end
-                    local count = 0 for _ in pairs(pendingParts) do count = count + 1 end
-                    if count < expectedTotal then return end
-                    message = table.concat(pendingParts)
-                    wipe(pendingParts)
-                    expectedTotal = nil
-                end
-
-                -- parse full message
-                local data = {}
-                for chunkPart in string.gmatch(message, "([^|]+)") do
-                    local key, value = chunkPart:match("([^=]+)=(.*)")
-                    if key and value then data[key] = value end
-                end
-
-                local damageType = data["DamageType"]
-                if damageType == "DIRECT_DAMAGE" then damageType = "SWING" end
-
-                local spellID = tonumber(data["SpellID"])
-                local spellName = _GetSpellInfo(spellID)
-                local amount = tonumber(data["Amount"])
-                local absorbed = tonumber(data["Absorbed"])
-                local logData = data["Log"] or ""
-
-                local sourceGUID = UnitGUID("player")
-                local sourceName = data["SourceName"]
-
-                if not FSDamageLoggerFrame.Data.Started then FSDamageLoggerFrame.Data.Started = time() end
-
-                table.insert(FSDamageLoggerFrame.Data, 1, {
-                    time(), "SPELL_DAMAGE", false,
-                    sourceGUID, sourceName, 0, 0,
-                    0, UnitGUID("target"), UnitName("target"), 0,
-                    spellID, spellName, 1, amount,
-                    0, 0, 0, 0, absorbed, logData, damageType
-                })
-                damageScroll:RefreshScroll()
-            end
-        end)
-
-        FSDamageLoggerFrame:SetScript("OnShow", function()
-            wipe(FSDamageLoggerFrame.Data)
-            serverCombatLogReader:RegisterEvent("CHAT_MSG_ADDON")
-            damageScroll:RefreshScroll()
-        end)
-
-        FSDamageLoggerFrame:SetScript("OnHide", function()
-            serverCombatLogReader:UnregisterEvent("CHAT_MSG_ADDON")
-        end)
+        detail.edit = edit
+        F.Detail = detail
     end
 
-    FSDamageLoggerFrame:Show()
+    local txt = string.format("Spell Name: |cffffd100%s|r\nSpell ID: |cff00ccff%d|r\nAmount: |cffff5555%d|r",
+        spellName or "Unknown", spellID or 0, amount or 0)
+    if logText and logText ~= "" then
+        txt = txt .. "\n\nLog Data:\n" .. logText
+    end
+
+    F.Detail.edit:SetText(txt)
+    F.Detail.edit:HighlightText(0, 0)
+    F.Detail:Show()
 end
 
-SLASH_FSDAMAGELOGGER1 = "/fsdamagelogger"
-SLASH_FSDAMAGELOGGER2 = "/fsdl"
-SlashCmdList["FSDAMAGELOGGER"] = function() FSDamageLogger:ScrollDamage() end
+local function createLineFunc(self, index)
+    local line = CreateFrame("button", "$parentLine" .. index, self, "BackdropTemplate")
+    line:SetPoint("TOPLEFT", self, "TOPLEFT", 1, -((index-1)*(LINE_H+1)) - 1)
+    line:SetSize(self:GetWidth()-12, LINE_H)
+    line:SetBackdrop({bgFile=[[Interface\Tooltips\UI-Tooltip-Background]], tileSize=64, tile=true})
+    line:SetBackdropColor(.2,.2,.2,0.2)
+
+    line:SetScript("OnEnter", function(s) s:SetBackdropColor(.8,.8,.8,0.4) end)
+    line:SetScript("OnLeave", function(s) s:SetBackdropColor(.2,.2,.2,0.2) end)
+
+    DF:Mixin(line, DF.HeaderFunctions)
+
+    local icon = line:CreateTexture("$parentSpellIcon", "OVERLAY")
+    icon:SetSize(LINE_H-2, LINE_H-2)
+
+    local spellNameText = DF:CreateLabel(line, "", 10, "white")
+    local damageText    = DF:CreateLabel(line, "", 10, "white")
+    local sourceText    = DF:CreateLabel(line, "", 10, "white")
+    local dmgTypeText   = DF:CreateLabel(line, "", 10, "white")
+    local spellIDText   = DF:CreateLabel(line, "", 10, "white")
+
+    line:AddFrameToHeaderAlignment(icon)
+    line:AddFrameToHeaderAlignment(spellNameText)
+    line:AddFrameToHeaderAlignment(damageText)
+    line:AddFrameToHeaderAlignment(sourceText)
+    line:AddFrameToHeaderAlignment(dmgTypeText)
+    line:AddFrameToHeaderAlignment(spellIDText)
+    line:AlignWithHeader(F.Header, "left")
+
+    line.Icon = icon
+    line.SpellNameText = spellNameText
+    line.DamageText    = damageText
+    line.SourceNameText= sourceText
+    line.DmgTypeText   = dmgTypeText
+    line.SpellIDText   = spellIDText
+
+    line.SetEmpty = function(s)
+        s.SpellName=nil; s.SpellID=nil; s.Amount=nil; s.Log=nil
+        s.Icon:SetTexture(nil)
+        s.SpellNameText.text=""; s.DamageText.text=""; s.SourceNameText.text=""
+        s.DmgTypeText.text=""; s.SpellIDText.text=""
+    end
+
+    line:SetScript("OnClick", function(s)
+        OpenDetailWindow(s.SpellName, s.SpellID, s.Amount, s.Log)
+    end)
+
+    return line
+end
+
+local function makeRefreshFunc()
+    return function(self, data, offset, totalLines)
+        local ToK = Details:GetCurrentToKFunction()
+
+        for i=1,totalLines do
+            local idx = i + offset
+            local ev = data[idx]
+            local line = self:GetLine(i)
+
+            if ev then
+                local spellID, spellName, amount, sourceName, dmgType, logText = unpack(ev)
+                local name, _, icon = _GetSpellInfo(spellID or 1)
+                local shownName = name or spellName or "Unknown"
+
+                line.SpellID   = spellID
+                line.SpellName = shownName
+                line.Amount    = amount or 0
+                line.Log       = logText or ""
+
+                line.Icon:SetTexture(icon)
+                line.Icon:SetTexCoord(.1,.9,.1,.9)
+                line.SpellNameText.text = shownName
+                line.DamageText.text    = " " .. ToK(_, line.Amount)
+                line.SourceNameText.text= sourceName or "Unknown"
+                line.DmgTypeText.text   = dmgType or "-"
+                line.SpellIDText.text   = spellID or ""
+                line:Show()
+            else
+                line:SetEmpty()
+                line:Hide()
+            end
+        end
+    end
+end
+
+local function highlightTab(btn, hl)
+    if not btn then return end
+    btn:SetAlpha(hl and 1 or 0.65)
+end
+
+local function SwitchTab(key)
+    ACTIVE_TAB = key
+    if F.Scroll then
+        F.Scroll:SetData(DATA[ACTIVE_TAB])
+        F.Scroll:Refresh()
+    end
+    for k, b in pairs(F.TabButtons) do
+        highlightTab(b, k==ACTIVE_TAB)
+    end
+end
+
+local function CreateMainWindow()
+    local frame = DF:CreateSimplePanel(UIParent, PANEL_W, PANEL_H, ".debug fsdl")
+    frame:SetFrameStrata("DIALOG")
+    frame:Hide()
+    F.Frame = frame
+
+    if not Details.damage_scroll_position then
+        Details.damage_scroll_position = {point="CENTER", x=0, y=0, scale=1}
+    end
+    LibWindow.RegisterConfig(frame, Details.damage_scroll_position)
+    LibWindow.MakeDraggable(frame)
+    LibWindow.RestorePosition(frame)
+    frame:SetScale(Details.damage_scroll_position.scale)
+
+    -- вкладки
+    F.TabButtons = {}
+    local x = 8
+    for _, t in ipairs(TABS) do
+        local b = DF:CreateButton(frame, function() SwitchTab(t.key) end, 1, 1, t.label)
+        b:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -32)
+        b:SetSize(120, 22)
+        F.TabButtons[t.key] = b
+        x = x + 125
+    end
+
+    -- title
+    local header = DF:CreateHeader(frame, headerTable, headerOptions)
+    header:SetPoint("TOPLEFT", frame, "TOPLEFT", 5, -70)
+    F.Header = header
+
+    -- dynamic calculating of height and lines count
+    local scrollTopOffset = 90
+    local scrollH = PANEL_H - scrollTopOffset - 20
+    local lines = math.floor((scrollH - 2) / (LINE_H + 1))
+    if lines < 8 then lines = 8 end
+
+    local scroll = DF:CreateScrollBox(frame, "$parentScroll", makeRefreshFunc(), DATA[ACTIVE_TAB], PANEL_W-20, scrollH, lines, LINE_H)
+    DF:ReskinSlider(scroll)
+    scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 5, -scrollTopOffset)
+    F.Scroll = scroll
+    for i=1,lines do scroll:CreateLine(createLineFunc) end
+
+    SwitchTab(ACTIVE_TAB)
+    return frame
+end
+
+-- =========================
+-- Messages recieving
+-- =========================
+C_ChatInfo.RegisterAddonMessagePrefix("FSDL_DAMAGE")
+C_ChatInfo.RegisterAddonMessagePrefix("FSDL_HEAL")
+C_ChatInfo.RegisterAddonMessagePrefix("FSDL_DAMAGE_T")
+C_ChatInfo.RegisterAddonMessagePrefix("FSDL_HEAL_T")
+
+local prefixToTab = {
+    FSDL_DAMAGE   = "DAMAGE",
+    FSDL_HEAL     = "HEAL",
+    FSDL_DAMAGE_T = "DAMAGE_TAKEN",
+    FSDL_HEAL_T   = "HEAL_TAKEN",
+}
+
+local function addRow(tabKey, data)
+    -- line structure: {spellID, spellName, amount, sourceName, dmgType, logText}
+    local spellID = tonumber(data["SpellID"])
+    local spellName = data["SpellName"] or _GetSpellInfo(spellID) or "Unknown"
+    local amount = tonumber(data["Amount"]) or 0
+    local sourceName = data["SourceName"] or "Unknown"
+    local dt = data["DamageType"]
+    if dt == "DIRECT_DAMAGE" then dt = "SWING" end
+    local logText = data["Log"] or ""
+
+    table.insert(DATA[tabKey], 1, { spellID, spellName, amount, sourceName, dt or "-", logText })
+
+    if F.Scroll and ACTIVE_TAB == tabKey then
+        F.Scroll:SetData(DATA[ACTIVE_TAB])
+        F.Scroll:Refresh()
+    end
+end
+
+local listener = CreateFrame("Frame")
+listener:RegisterEvent("CHAT_MSG_ADDON")
+listener:SetScript("OnEvent", function(_, _, prefix, message, channel, sender)
+    local tabKey = prefixToTab[prefix]
+    if not tabKey then return end
+
+    -- buffer by key prefix+sender
+    chunkBuffers[prefix] = chunkBuffers[prefix] or {}
+    local bucket = chunkBuffers[prefix][sender] or { parts={}, total=nil }
+    chunkBuffers[prefix][sender] = bucket
+
+    local part, total, chunk = message:match("^PART%|(%d+)%/(%d+)%|(.*)$")
+    if part then
+        part = tonumber(part); total = tonumber(total)
+        bucket.parts[part] = chunk
+        if not bucket.total then bucket.total = total end
+        local count = 0 for _ in pairs(bucket.parts) do count = count + 1 end
+        if count < bucket.total then return end
+        -- build and clean
+        local list = {}
+        for i=1,bucket.total do list[i] = bucket.parts[i] or "" end
+        message = table.concat(list)
+        bucket.parts = {}; bucket.total = nil
+    end
+
+    local data = {}
+    for piece in string.gmatch(message, "([^|]+)") do
+        local k,v = piece:match("([^=]+)=(.*)")
+        if k and v then data[k]=v end
+    end
+
+    addRow(tabKey, data)
+end)
+
+-- =========================
+-- Command
+-- =========================
+SlashCmdList["FSDAMAGELOGGER"] = function()
+    if not F.Frame then CreateMainWindow() end
+    F.Frame:Show()
+end
+SLASH_FSDAMAGELOGGER1 = "/fsdl"
+SLASH_FSDAMAGELOGGER2 = "/fsdamagelogger"

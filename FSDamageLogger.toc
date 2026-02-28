@@ -1,7 +1,8 @@
-## Interface: 110105
+## Interface: 110205
 ## Title: FSDamageLogger
 ## Notes: Logs each damage event individually with GUI
 ## Author: Anbush
-## Version: 1.1
+## Version: 1.2
+## RequiredDeps: Details
 
 FSDamageLogger.lua

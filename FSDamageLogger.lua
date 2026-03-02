@@ -558,7 +558,6 @@ local function addRow(tabKey, data)
     local logText = data["Log"] or ""
 
     table.insert(DATA[tabKey], 1, { spellID, spellName, amount, sourceName, dt or "-", timeMS, logText })
-    SortTabData(tabKey)
 
     if F.Scroll and ACTIVE_TAB == tabKey then
         RefreshActiveScroll()

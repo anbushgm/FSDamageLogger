@@ -2,7 +2,7 @@
 ## Title: FSDamageLogger
 ## Notes: Logs each damage event individually with GUI
 ## Author: Anbush
-## Version: 1.2
+## Version: 1.2.1
 ## RequiredDeps: Details
 
 FSDamageLogger.lua

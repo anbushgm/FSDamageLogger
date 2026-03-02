@@ -183,6 +183,44 @@ local function RefreshActiveScroll()
     F.Scroll:Refresh()
 end
 
+local REFRESH_MIN_INTERVAL = 0.1
+local refreshPending = false
+local lastRefreshTime = 0
+
+local function EnsureRefreshDriver()
+    if F.RefreshDriver then
+        return
+    end
+    local driver = CreateFrame("Frame")
+    driver:SetScript("OnUpdate", function(_, _)
+        if not refreshPending or not F.Scroll then
+            return
+        end
+        local now = GetTime()
+        if (now - lastRefreshTime) < REFRESH_MIN_INTERVAL then
+            return
+        end
+        lastRefreshTime = now
+        refreshPending = false
+        RefreshActiveScroll()
+    end)
+    F.RefreshDriver = driver
+end
+
+local function RequestRefresh(throttled)
+    if not F.Scroll then
+        return
+    end
+    if not throttled then
+        lastRefreshTime = GetTime()
+        refreshPending = false
+        RefreshActiveScroll()
+        return
+    end
+    EnsureRefreshDriver()
+    refreshPending = true
+end
+
 local function SetPaused(paused)
     IS_PAUSED = paused and true or false
     if F.PauseButton then
@@ -353,7 +391,7 @@ end
 local function SwitchTab(key)
     ACTIVE_TAB = key
     SortTabData(ACTIVE_TAB)
-    RefreshActiveScroll()
+    RequestRefresh(false)
     for k, b in pairs(F.TabButtons) do
         highlightTab(b, k==ACTIVE_TAB)
     end
@@ -363,7 +401,7 @@ headerOptions.header_click_callback = function(_, _, columnIndex, columnOrder)
     SORT_COLUMN_INDEX = columnIndex
     SORT_ORDER = columnOrder
     SortTabData(ACTIVE_TAB)
-    RefreshActiveScroll()
+    RequestRefresh(false)
 end
 
 local sessionTimeStartAt
@@ -479,7 +517,7 @@ local function CreateMainWindow()
         SEARCH_TEXT = NormalizeSearchText(currentText)
         searchHint:SetShown(currentText == "")
         clearSearchButton:SetShown(currentText ~= "")
-        RefreshActiveScroll()
+        RequestRefresh(false)
     end)
     F.SearchBox = searchBox
     F.ClearSearchButton = clearSearchButton
@@ -560,7 +598,7 @@ local function addRow(tabKey, data)
     table.insert(DATA[tabKey], 1, { spellID, spellName, amount, sourceName, dt or "-", timeMS, logText })
 
     if F.Scroll and ACTIVE_TAB == tabKey then
-        RefreshActiveScroll()
+        RequestRefresh(true)
     end
 end
 
